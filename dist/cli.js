@@ -2,13 +2,13 @@
 // @bun
 
 // src/cli.ts
-import { readFileSync as readFileSync2, writeFileSync as writeFileSync2 } from "fs";
+import { readFileSync as readFileSync2, writeFileSync } from "fs";
 import { isatty } from "tty";
 
 // src/statusbar.ts
 import { execFileSync } from "child_process";
 import { createHash } from "crypto";
-import { readFileSync, writeFileSync, statSync, mkdirSync, existsSync } from "fs";
+import { readFileSync } from "fs";
 
 // src/bar.ts
 function calcElapsed(resetsAt, windowHours, now) {
@@ -176,33 +176,6 @@ function readPathEntries() {
     return [];
   }
 }
-function recordPathEntry(configDir) {
-  const cacheDir = `${process.env.XDG_CACHE_HOME || `${process.env.HOME}/.cache`}/kawaz-claude-statusline`;
-  const pathsFile = `${cacheDir}/paths.jsonl`;
-  const hash = configDirToHash(configDir);
-  const newEntry = JSON.stringify({ path: configDir, hash });
-  try {
-    if (existsSync(pathsFile)) {
-      const content = readFileSync(pathsFile, "utf-8");
-      const lines = content.split(`
-`).filter((l) => l.trim());
-      for (const line of lines) {
-        try {
-          const entry = JSON.parse(line);
-          if (entry.path === configDir)
-            return;
-        } catch {}
-      }
-      writeFileSync(pathsFile, content.trimEnd() + `
-` + newEntry + `
-`);
-    } else {
-      mkdirSync(cacheDir, { recursive: true });
-      writeFileSync(pathsFile, newEntry + `
-`);
-    }
-  } catch {}
-}
 function runStatusbar() {
   const raw = readFileSync("/dev/stdin", "utf-8");
   if (!raw.trim()) {
@@ -289,87 +262,11 @@ function runStatusbar() {
   }
   const ctx = input.context_window;
   const modelName = input.model?.display_name ?? "";
-  const configDir = process.env.CLAUDE_CONFIG_DIR || `${process.env.HOME}/.claude`;
-  recordPathEntry(configDir);
-  const sessionHash = createHash("sha256").update(configDir).digest("hex").slice(0, 8);
-  const cacheDir = `${process.env.XDG_CACHE_HOME || `${process.env.HOME}/.cache`}/kawaz-claude-statusline`;
-  const CACHE_FILE = `${cacheDir}/session-${sessionHash}.json`;
-  const CACHE_TTL = 360;
-  const credService = configDirToService(configDir, "CC");
-  const slCredService = configDirToService(configDir, "ST");
-  function getUsageData() {
-    function readStaleCache() {
-      try {
-        return JSON.parse(readFileSync(CACHE_FILE, "utf-8"));
-      } catch {
-        return null;
-      }
-    }
-    try {
-      const stat = statSync(CACHE_FILE);
-      if ((Date.now() - stat.mtimeMs) / 1000 < CACHE_TTL) {
-        return JSON.parse(readFileSync(CACHE_FILE, "utf-8"));
-      }
-    } catch {}
-    try {
-      let creds = readKeychain(slCredService);
-      if (!creds?.claudeAiOauth?.accessToken) {
-        creds = readKeychain(credService);
-        if (creds?.claudeAiOauth?.accessToken) {
-          writeKeychain(slCredService, creds);
-        }
-      }
-      if (!creds?.claudeAiOauth?.accessToken)
-        return readStaleCache();
-      let token = creds.claudeAiOauth.accessToken;
-      const expiresAt = creds.claudeAiOauth.expiresAt;
-      if (expiresAt && Date.now() + 300000 >= expiresAt) {
-        const refreshed = refreshAccessToken(creds.claudeAiOauth.refreshToken);
-        if (refreshed) {
-          token = refreshed.accessToken;
-          creds.claudeAiOauth = {
-            ...creds.claudeAiOauth,
-            accessToken: refreshed.accessToken,
-            refreshToken: refreshed.refreshToken,
-            expiresAt: refreshed.expiresAt,
-            ...refreshed.refreshTokenExpiresAt ? { refreshTokenExpiresAt: refreshed.refreshTokenExpiresAt } : {}
-          };
-          writeKeychain(slCredService, creds);
-        } else {
-          const fresh = readKeychain(credService);
-          if (fresh?.claudeAiOauth?.accessToken) {
-            token = fresh.claudeAiOauth.accessToken;
-            writeKeychain(slCredService, fresh);
-          } else {
-            return readStaleCache();
-          }
-        }
-      }
-      const res = execFileSync("curl", [
-        "-sf",
-        "--max-time",
-        "5",
-        "-H",
-        `Authorization: Bearer ${token}`,
-        "-H",
-        "anthropic-beta: oauth-2025-04-20",
-        "https://api.anthropic.com/api/oauth/usage"
-      ], { encoding: "utf-8", timeout: 1e4 });
-      const data = JSON.parse(res);
-      if (!data.five_hour)
-        return readStaleCache();
-      mkdirSync(cacheDir, { recursive: true });
-      writeFileSync(CACHE_FILE, JSON.stringify(data));
-      return data;
-    } catch {
-      return readStaleCache();
-    }
-  }
   const usageUrl = "https://claude.ai/settings/usage";
   const barParts = [];
   const barWidth = 10;
-  function formatRemaining(resetsAt) {
-    const ms = Math.max(0, new Date(resetsAt).getTime() - Date.now());
+  function formatRemaining(resetsAtSec) {
+    const ms = Math.max(0, resetsAtSec * 1000 - Date.now());
     const totalM = Math.floor(ms / 60000);
     const m = totalM % 60;
     const totalH = Math.floor(totalM / 60);
@@ -384,23 +281,25 @@ function runStatusbar() {
       return `${totalH}h${pp(m)}m`;
     return `${pp(totalM)}m`;
   }
-  function dualInfo(util, elapsed, resetsAt) {
+  function dualInfo(util, elapsed, resetsAtSec) {
     const TU = util >= 80 ? "196" : util >= 50 ? "220" : "40";
     const BU = "39";
     const BA = "24";
     const rst = "\x1B[0m";
-    return ` \x1B[38;5;${TU}m${util}%${rst}/\x1B[38;5;${BU}m${Math.round(elapsed)}%${rst}/\x1B[38;5;${BA}m${formatRemaining(resetsAt)}${rst}`;
+    return ` \x1B[38;5;${TU}m${util}%${rst}/\x1B[38;5;${BU}m${Math.round(elapsed)}%${rst}/\x1B[38;5;${BA}m${formatRemaining(resetsAtSec)}${rst}`;
   }
   const ctxPct = Math.round(ctx?.used_percentage ?? 0);
   barParts.push(`${osc(usageUrl, "\uD83E\uDDE0")} ${contextBar(ctxPct, barWidth)}`);
-  const usage = getUsageData();
-  if (usage?.five_hour && usage?.seven_day) {
-    const f5 = Math.round(usage.five_hour.utilization);
-    const f5elapsed = calcElapsed(usage.five_hour.resets_at, 5);
-    barParts.push(`${osc(usageUrl, "\u23F0")} ${dualBar(f5, f5elapsed, barWidth)}${dualInfo(f5, f5elapsed, usage.five_hour.resets_at)}`);
-    const f7 = Math.round(usage.seven_day.utilization);
-    const f7elapsed = calcElapsed(usage.seven_day.resets_at, 7 * 24);
-    barParts.push(`${osc(usageUrl, "\uD83D\uDCC6")} ${dualBar(f7, f7elapsed, barWidth)}${dualInfo(f7, f7elapsed, usage.seven_day.resets_at)}`);
+  const rl = input.rate_limits;
+  if (rl?.five_hour && rl?.seven_day) {
+    const f5 = Math.round(rl.five_hour.used_percentage);
+    const f5resetsAt = new Date(rl.five_hour.resets_at * 1000).toISOString();
+    const f5elapsed = calcElapsed(f5resetsAt, 5);
+    barParts.push(`${osc(usageUrl, "\u23F0")} ${dualBar(f5, f5elapsed, barWidth)}${dualInfo(f5, f5elapsed, rl.five_hour.resets_at)}`);
+    const f7 = Math.round(rl.seven_day.used_percentage);
+    const f7resetsAt = new Date(rl.seven_day.resets_at * 1000).toISOString();
+    const f7elapsed = calcElapsed(f7resetsAt, 7 * 24);
+    barParts.push(`${osc(usageUrl, "\uD83D\uDCC6")} ${dualBar(f7, f7elapsed, barWidth)}${dualInfo(f7, f7elapsed, rl.seven_day.resets_at)}`);
   }
   if (modelName)
     barParts.push(modelName);
@@ -944,7 +843,7 @@ Options:
     type: "command",
     command
   };
-  writeFileSync2(settingsPath, JSON.stringify(settings, null, 2) + `
+  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + `
 `);
   console.log(`Registered in ${settingsPath}:`);
   console.log(`  statusLine.command = "${command}"`);
