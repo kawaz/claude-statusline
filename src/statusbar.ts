@@ -1,6 +1,6 @@
 import { execFileSync } from "child_process";
 import { createHash } from "crypto";
-import { readFileSync, writeFileSync, statSync, mkdirSync, existsSync } from "fs";
+import { readFileSync } from "fs";
 import { calcElapsed, contextBar, dualBar } from "./bar";
 
 // OSC 8 hyperlink: clickable in terminals that support it
@@ -130,30 +130,6 @@ export function readPathEntries(): { path: string; hash: string }[] {
   }
 }
 
-function recordPathEntry(configDir: string): void {
-  const cacheDir = `${process.env.XDG_CACHE_HOME || `${process.env.HOME}/.cache`}/kawaz-claude-statusline`;
-  const pathsFile = `${cacheDir}/paths.jsonl`;
-  const hash = configDirToHash(configDir);
-  const newEntry = JSON.stringify({ path: configDir, hash });
-
-  try {
-    if (existsSync(pathsFile)) {
-      const content = readFileSync(pathsFile, "utf-8");
-      const lines = content.split("\n").filter((l) => l.trim());
-      for (const line of lines) {
-        try {
-          const entry = JSON.parse(line);
-          if (entry.path === configDir) return; // already recorded
-        } catch {}
-      }
-      writeFileSync(pathsFile, content.trimEnd() + "\n" + newEntry + "\n");
-    } else {
-      mkdirSync(cacheDir, { recursive: true });
-      writeFileSync(pathsFile, newEntry + "\n");
-    }
-  } catch {}
-}
-
 export function runStatusbar(): void {
   const raw = readFileSync("/dev/stdin", "utf-8");
   if (!raw.trim()) {
@@ -255,101 +231,12 @@ export function runStatusbar(): void {
   // Bars
   const ctx = input.context_window;
   const modelName = input.model?.display_name ?? "";
-  const configDir = process.env.CLAUDE_CONFIG_DIR || `${process.env.HOME}/.claude`;
-  recordPathEntry(configDir);
-  const sessionHash = createHash("sha256").update(configDir).digest("hex").slice(0, 8);
-  const cacheDir = `${process.env.XDG_CACHE_HOME || `${process.env.HOME}/.cache`}/kawaz-claude-statusline`;
-  const CACHE_FILE = `${cacheDir}/session-${sessionHash}.json`;
-  const CACHE_TTL = 360;
-  const credService = configDirToService(configDir, "CC");
-  const slCredService = configDirToService(configDir, "ST");
-
-  function getUsageData(): Record<string, any> | null {
-    function readStaleCache(): Record<string, any> | null {
-      try {
-        return JSON.parse(readFileSync(CACHE_FILE, "utf-8"));
-      } catch {
-        return null;
-      }
-    }
-
-    try {
-      const stat = statSync(CACHE_FILE);
-      if ((Date.now() - stat.mtimeMs) / 1000 < CACHE_TTL) {
-        return JSON.parse(readFileSync(CACHE_FILE, "utf-8"));
-      }
-    } catch {}
-    try {
-      // Use statusline's own credential chain (independent from Claude Code)
-      let creds = readKeychain(slCredService);
-      if (!creds?.claudeAiOauth?.accessToken) {
-        // First time: seed from Claude Code's entry
-        creds = readKeychain(credService);
-        if (creds?.claudeAiOauth?.accessToken) {
-          writeKeychain(slCredService, creds);
-        }
-      }
-      if (!creds?.claudeAiOauth?.accessToken) return readStaleCache();
-
-      let token = creds.claudeAiOauth.accessToken;
-      const expiresAt = creds.claudeAiOauth.expiresAt;
-
-      // Refresh if expired (5-min buffer, same as Claude Code)
-      if (expiresAt && Date.now() + 300_000 >= expiresAt) {
-        const refreshed = refreshAccessToken(creds.claudeAiOauth.refreshToken);
-        if (refreshed) {
-          token = refreshed.accessToken;
-          creds.claudeAiOauth = {
-            ...creds.claudeAiOauth,
-            accessToken: refreshed.accessToken,
-            refreshToken: refreshed.refreshToken,
-            expiresAt: refreshed.expiresAt,
-            ...(refreshed.refreshTokenExpiresAt
-              ? { refreshTokenExpiresAt: refreshed.refreshTokenExpiresAt }
-              : {}),
-          };
-          writeKeychain(slCredService, creds);
-        } else {
-          // Refresh failed — re-seed from Claude Code's latest entry and retry
-          const fresh = readKeychain(credService);
-          if (fresh?.claudeAiOauth?.accessToken) {
-            token = fresh.claudeAiOauth.accessToken;
-            writeKeychain(slCredService, fresh);
-          } else {
-            return readStaleCache();
-          }
-        }
-      }
-
-      const res = execFileSync(
-        "curl",
-        [
-          "-sf",
-          "--max-time",
-          "5",
-          "-H",
-          `Authorization: Bearer ${token}`,
-          "-H",
-          "anthropic-beta: oauth-2025-04-20",
-          "https://api.anthropic.com/api/oauth/usage",
-        ],
-        { encoding: "utf-8", timeout: 10000 },
-      );
-      const data = JSON.parse(res);
-      if (!data.five_hour) return readStaleCache();
-      mkdirSync(cacheDir, { recursive: true });
-      writeFileSync(CACHE_FILE, JSON.stringify(data));
-      return data;
-    } catch {
-      return readStaleCache();
-    }
-  }
 
   const usageUrl = "https://claude.ai/settings/usage";
   const barParts: string[] = [];
   const barWidth = 10;
-  function formatRemaining(resetsAt: string): string {
-    const ms = Math.max(0, new Date(resetsAt).getTime() - Date.now());
+  function formatRemaining(resetsAtSec: number): string {
+    const ms = Math.max(0, resetsAtSec * 1000 - Date.now());
     const totalM = Math.floor(ms / 60_000);
     const m = totalM % 60;
     const totalH = Math.floor(totalM / 60);
@@ -362,29 +249,31 @@ export function runStatusbar(): void {
     return `${pp(totalM)}m`;
   }
 
-  function dualInfo(util: number, elapsed: number, resetsAt: string): string {
+  function dualInfo(util: number, elapsed: number, resetsAtSec: number): string {
     const TU = util >= 80 ? "196" : util >= 50 ? "220" : "40";
     const BU = "39";
     const BA = "24";
     const rst = "\x1b[0m";
-    return ` \x1b[38;5;${TU}m${util}%${rst}/\x1b[38;5;${BU}m${Math.round(elapsed)}%${rst}/\x1b[38;5;${BA}m${formatRemaining(resetsAt)}${rst}`;
+    return ` \x1b[38;5;${TU}m${util}%${rst}/\x1b[38;5;${BU}m${Math.round(elapsed)}%${rst}/\x1b[38;5;${BA}m${formatRemaining(resetsAtSec)}${rst}`;
   }
 
   const ctxPct = Math.round(ctx?.used_percentage ?? 0);
   barParts.push(`${osc(usageUrl, "🧠")} ${contextBar(ctxPct, barWidth)}`);
 
-  const usage = getUsageData();
-  if (usage?.five_hour && usage?.seven_day) {
-    const f5 = Math.round(usage.five_hour.utilization);
-    const f5elapsed = calcElapsed(usage.five_hour.resets_at, 5);
+  const rl = input.rate_limits;
+  if (rl?.five_hour && rl?.seven_day) {
+    const f5 = Math.round(rl.five_hour.used_percentage);
+    const f5resetsAt = new Date(rl.five_hour.resets_at * 1000).toISOString();
+    const f5elapsed = calcElapsed(f5resetsAt, 5);
     barParts.push(
-      `${osc(usageUrl, "⏰")} ${dualBar(f5, f5elapsed, barWidth)}${dualInfo(f5, f5elapsed, usage.five_hour.resets_at)}`,
+      `${osc(usageUrl, "⏰")} ${dualBar(f5, f5elapsed, barWidth)}${dualInfo(f5, f5elapsed, rl.five_hour.resets_at)}`,
     );
 
-    const f7 = Math.round(usage.seven_day.utilization);
-    const f7elapsed = calcElapsed(usage.seven_day.resets_at, 7 * 24);
+    const f7 = Math.round(rl.seven_day.used_percentage);
+    const f7resetsAt = new Date(rl.seven_day.resets_at * 1000).toISOString();
+    const f7elapsed = calcElapsed(f7resetsAt, 7 * 24);
     barParts.push(
-      `${osc(usageUrl, "📆")} ${dualBar(f7, f7elapsed, barWidth)}${dualInfo(f7, f7elapsed, usage.seven_day.resets_at)}`,
+      `${osc(usageUrl, "📆")} ${dualBar(f7, f7elapsed, barWidth)}${dualInfo(f7, f7elapsed, rl.seven_day.resets_at)}`,
     );
   }
 
