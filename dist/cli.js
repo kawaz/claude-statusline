@@ -82,6 +82,9 @@ function contextBar(pct, width) {
 function osc(url, text) {
   return `\x1B]8;;${url}\x07${text}\x1B]8;;\x07`;
 }
+function encPath(path) {
+  return path.split("/").map(encodeURIComponent).join("/");
+}
 function parseRepo(dir) {
   const m = dir.match(/\/repos\/([^/]+)\/([^/]+)\/([^/]+)/);
   if (!m)
@@ -185,14 +188,19 @@ function runStatusbar() {
   const input = JSON.parse(raw);
   const cwd = input.workspace?.current_dir ?? "";
   const repo = parseRepo(cwd);
-  const finderLink = osc(`file://${cwd}`, "\uD83D\uDCC2");
+  const encCwd = encPath(cwd);
+  const finderLink = osc(`file://${encCwd}`, "\uD83D\uDCC2");
+  const vscodeLink = osc(`vscode://file${encCwd}`, "[VSCode]");
   let locationLine;
   if (repo) {
     const ownerUrl = `https://${repo.host}/${repo.owner}`;
     const repoUrl = `https://${repo.host}/${repo.owner}/${repo.repo}`;
-    locationLine = `${finderLink} ${osc(ownerUrl, repo.owner)}/${osc(repoUrl, repo.repo)}`;
+    const dimBlue = "\x1B[2;34m";
+    const blue = "\x1B[34m";
+    const rst = "\x1B[0m";
+    locationLine = `${finderLink} ${vscodeLink} ${dimBlue}${osc(ownerUrl, repo.owner)}${rst}/${blue}${osc(repoUrl, repo.repo)}${rst}`;
   } else {
-    locationLine = osc(`file://${cwd}`, cwd);
+    locationLine = `${finderLink} ${vscodeLink} ` + osc(`file://${encCwd}`, cwd);
   }
   let vcsInfo = "";
   let currentBookmark = "";
@@ -214,7 +222,7 @@ function runStatusbar() {
       "--no-graph",
       "--color=always",
       "-T",
-      'separate("\\t", if(current_working_copy, label("node working_copy", "@")), format_short_change_id(change_id), self.bookmarks(), format_short_commit_id(commit_id))'
+      'separate("\\t", if(current_working_copy, label("node working_copy", working_copies)), format_short_change_id(change_id), self.bookmarks(), format_short_commit_id(commit_id))'
     ]).split("\t");
     const [coloredNode, coloredCid, coloredBms, coloredCommit] = coloredParts;
     const plainData = jjExec([
@@ -227,9 +235,10 @@ function runStatusbar() {
     ]).split("\t");
     const [plainBms, plainCommit, isImmutable] = plainData;
     currentBookmark = plainBms;
-    const bmPart = coloredBms && repoBase && currentBookmark ? osc(`${repoBase}/tree/${currentBookmark.split(",")[0]}`, coloredBms) : coloredBms;
+    const bmPart = coloredBms && repoBase && currentBookmark ? osc(`${repoBase}/tree/${encodeURIComponent(currentBookmark.split(",")[0])}`, coloredBms) : coloredBms;
     const commitPart = repoBase && isImmutable === "true" ? osc(`${repoBase}/commit/${plainCommit}`, coloredCommit) : coloredCommit;
-    const parts = [coloredNode, coloredCid, bmPart, commitPart].filter(Boolean);
+    const nodePart = coloredNode ? osc(`file://${encCwd}`, coloredNode) : "";
+    const parts = [nodePart, coloredCid, bmPart, commitPart].filter(Boolean);
     vcsInfo = parts.join(" ");
     if (!currentBookmark) {
       try {
