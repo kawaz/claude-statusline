@@ -1,5 +1,4 @@
 import { execFileSync } from "child_process";
-import { createHash } from "crypto";
 import { readFileSync } from "fs";
 import { calcElapsed, contextBar, dualBar } from "./bar";
 
@@ -18,122 +17,6 @@ function parseRepo(dir: string): { host: string; owner: string; repo: string } |
   return { host: m[1], owner: m[2], repo: m[3] };
 }
 
-export function readKeychain(service: string): Record<string, any> | null {
-  for (const args of [
-    ["find-generic-password", "-s", service, "-a", process.env.USER ?? "", "-w"],
-    ["find-generic-password", "-s", service, "-w"],
-  ]) {
-    try {
-      return JSON.parse(execFileSync("security", args, { encoding: "utf-8", timeout: 3000 }));
-    } catch {}
-  }
-  return null;
-}
-
-export function writeKeychain(service: string, creds: Record<string, any>): void {
-  try {
-    execFileSync(
-      "security",
-      [
-        "add-generic-password",
-        "-U",
-        "-s",
-        service,
-        "-a",
-        process.env.USER ?? "",
-        "-w",
-        JSON.stringify(creds),
-      ],
-      { encoding: "utf-8", timeout: 5000 },
-    );
-  } catch {}
-}
-
-export function refreshAccessToken(refreshToken: string): {
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: number;
-  refreshTokenExpiresAt?: number;
-} | null {
-  try {
-    const res = execFileSync(
-      "curl",
-      [
-        "-sf",
-        "--max-time",
-        "15",
-        "-X",
-        "POST",
-        "-H",
-        "Content-Type: application/json",
-        "-d",
-        JSON.stringify({
-          grant_type: "refresh_token",
-          refresh_token: refreshToken,
-          client_id: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
-          scope:
-            "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload",
-        }),
-        "https://platform.claude.com/v1/oauth/token",
-      ],
-      { encoding: "utf-8", timeout: 20000 },
-    );
-    const data = JSON.parse(res);
-    if (!data.access_token) return null;
-    const result: {
-      accessToken: string;
-      refreshToken: string;
-      expiresAt: number;
-      refreshTokenExpiresAt?: number;
-    } = {
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token || refreshToken,
-      expiresAt: Date.now() + (data.expires_in ?? 28800) * 1000,
-    };
-    if (data.refresh_token_expires_at) {
-      result.refreshTokenExpiresAt = data.refresh_token_expires_at;
-    } else if (data.refresh_token_expires_in) {
-      result.refreshTokenExpiresAt = Date.now() + data.refresh_token_expires_in * 1000;
-    }
-    return result;
-  } catch {
-    return null;
-  }
-}
-
-export function configDirToService(configDir: string, type: "CC" | "ST"): string {
-  const home = process.env.HOME ?? "";
-  const base =
-    configDir === `${home}/.claude`
-      ? "Claude Code-credentials"
-      : `Claude Code-credentials-${createHash("sha256").update(configDir).digest("hex").slice(0, 8)}`;
-  return type === "ST" ? `${base}-ST` : base;
-}
-
-export function configDirToHash(configDir: string): string {
-  const home = process.env.HOME ?? "";
-  return configDir === `${home}/.claude`
-    ? ""
-    : createHash("sha256").update(configDir).digest("hex").slice(0, 8);
-}
-
-export function readPathEntries(): { path: string; hash: string }[] {
-  const cacheDir = `${process.env.XDG_CACHE_HOME || `${process.env.HOME}/.cache`}/kawaz-claude-statusline`;
-  const pathsFile = `${cacheDir}/paths.jsonl`;
-  try {
-    const content = readFileSync(pathsFile, "utf-8");
-    const entries: { path: string; hash: string }[] = [];
-    for (const line of content.split("\n").filter((l) => l.trim())) {
-      try {
-        entries.push(JSON.parse(line));
-      } catch {}
-    }
-    return entries;
-  } catch {
-    return [];
-  }
-}
-
 export function runStatusbar(): void {
   const raw = readFileSync("/dev/stdin", "utf-8");
   if (!raw.trim()) {
@@ -146,7 +29,7 @@ export function runStatusbar(): void {
   const repo = parseRepo(cwd);
   const encCwd = encPath(cwd);
   const finderLink = osc(`file://${encCwd}`, "📂");
-  const vscodeLink = osc(`vscode://file${encCwd}`, "[VSCode]");
+  const vscodeLink = `[${osc(`vscode://file${encCwd}`, "VSCode")}]`;
   let locationLine: string;
   if (repo) {
     const ownerUrl = `https://${repo.host}/${repo.owner}`;

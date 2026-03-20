@@ -3,7 +3,6 @@ import { readFileSync, writeFileSync } from "fs";
 import { isatty } from "tty";
 import { runStatusbar } from "./statusbar";
 import { runSample } from "./sample";
-import { runToken } from "./token";
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -13,7 +12,6 @@ function help(): void {
 
 Commands:
   run       Output statusbar (reads JSON from stdin)
-  token     Manage OAuth credential entries in Keychain
   register  Register statusLine.command in ~/.claude/settings.json
   sample    Visualize bars with sample data
 
@@ -69,22 +67,10 @@ switch (cmd) {
       console.log(`Usage: kawaz-claude-statusline run
 
 Reads JSON from stdin (provided by Claude Code) and outputs multi-line
-status display with context window, usage bars (5h/7d), VCS info, and PR.
-
-Credentials:
-  Uses dedicated Keychain entry (Claude Code-credentials-ST).
-  On first run, seeded from Claude Code's entry.
-  Refreshes independently via own token chain.
-
-Caching:
-  API responses cached for 6 minutes.
-  On API failure, stale cache returned as fallback.`);
+status display with context window, usage bars (5h/7d), VCS info, and PR.`);
       break;
     }
     runStatusbar();
-    break;
-  case "token":
-    runToken(args.slice(1));
     break;
   case "sample":
     runSample(args.slice(1));
