@@ -102,6 +102,16 @@ function runStatusbar() {
   const encCwd = encPath(cwd);
   const finderLink = osc(`file://${encCwd}`, "\uD83D\uDCC2");
   const vscodeLink = `[${osc(`vscode://file${encCwd}`, "VSCode")}]`;
+  let remoteLink = "";
+  try {
+    const transcriptPath = input.transcript_path ?? "";
+    if (transcriptPath) {
+      const url = execFileSync("grep", ["-oE", "https://claude.ai/code/session_[a-zA-Z0-9]+", transcriptPath], { encoding: "utf-8", timeout: 3000 }).trim().split(`
+`).pop();
+      if (url)
+        remoteLink = ` [${osc(url, "Remote")}]`;
+    }
+  } catch {}
   let locationLine;
   if (repo) {
     const ownerUrl = `https://${repo.host}/${repo.owner}`;
@@ -109,9 +119,9 @@ function runStatusbar() {
     const dimBlue = "\x1B[2;34m";
     const blue = "\x1B[34m";
     const rst = "\x1B[0m";
-    locationLine = `${finderLink} ${vscodeLink} ${dimBlue}${osc(ownerUrl, repo.owner)}${rst}/${blue}${osc(repoUrl, repo.repo)}${rst}`;
+    locationLine = `${finderLink} ${vscodeLink}${remoteLink} ${dimBlue}${osc(ownerUrl, repo.owner)}${rst}/${blue}${osc(repoUrl, repo.repo)}${rst}`;
   } else {
-    locationLine = `${finderLink} ${vscodeLink} ` + osc(`file://${encCwd}`, cwd);
+    locationLine = `${finderLink} ${vscodeLink}${remoteLink} ` + osc(`file://${encCwd}`, cwd);
   }
   let vcsInfo = "";
   let currentBookmark = "";
