@@ -55,9 +55,9 @@ export function runStatusbar(): void {
     const dimBlue = "\x1b[2;34m";
     const blue = "\x1b[34m";
     const rst = "\x1b[0m";
-    locationLine = `${finderLink} ${vscodeLink}${remoteLink} ${dimBlue}${osc(ownerUrl, repo.owner)}${rst}/${blue}${osc(repoUrl, repo.repo)}${rst}`;
+    locationLine = `${finderLink}${vscodeLink}${remoteLink} ${dimBlue}${osc(ownerUrl, repo.owner)}${rst}/${blue}${osc(repoUrl, repo.repo)}${rst}`;
   } else {
-    locationLine = `${finderLink} ${vscodeLink}${remoteLink} ` + osc(`file://${encCwd}`, cwd);
+    locationLine = `${finderLink}${vscodeLink}${remoteLink} ` + osc(`file://${encCwd}`, cwd);
   }
 
   // VCS: try jj, fall back to git
@@ -141,7 +141,10 @@ export function runStatusbar(): void {
 
   // Bars
   const ctx = input.context_window;
-  const modelName = input.model?.display_name ?? "";
+  const rawModel = (input.model?.id ?? "").replace(/^claude-/, "");
+  const modelName = rawModel
+    ? `\x1b[38;5;40m${rawModel.replace(/\[.*/, (s) => `\x1b[2;38;5;40m${s}`)}\x1b[0m`
+    : "";
 
   const usageUrl = "https://claude.ai/settings/usage";
   const barParts: string[] = [];
@@ -165,11 +168,8 @@ export function runStatusbar(): void {
     const BU = "39";
     const BA = "24";
     const rst = "\x1b[0m";
-    return ` \x1b[38;5;${TU}m${util}%${rst}/\x1b[38;5;${BU}m${Math.round(elapsed)}%${rst}/\x1b[38;5;${BA}m${formatRemaining(resetsAtSec)}${rst}`;
+    return `\x1b[38;5;${TU}m${util}%${rst}/\x1b[38;5;${BU}m${Math.round(elapsed)}%${rst}/\x1b[38;5;${BA}m${formatRemaining(resetsAtSec)}${rst}`;
   }
-
-  const ctxPct = Math.round(ctx?.used_percentage ?? 0);
-  barParts.push(`${osc(usageUrl, "🧠")} ${contextBar(ctxPct, barWidth)}`);
 
   const rl = input.rate_limits;
   if (rl?.five_hour && rl?.seven_day) {
@@ -177,19 +177,21 @@ export function runStatusbar(): void {
     const f5resetsAt = new Date(rl.five_hour.resets_at * 1000).toISOString();
     const f5elapsed = calcElapsed(f5resetsAt, 5);
     barParts.push(
-      `${osc(usageUrl, "⏰")} ${dualBar(f5, f5elapsed, barWidth)}${dualInfo(f5, f5elapsed, rl.five_hour.resets_at)}`,
+      `${osc(usageUrl, "⏰")}${dualBar(f5, f5elapsed, barWidth)}${dualInfo(f5, f5elapsed, rl.five_hour.resets_at)}`,
     );
 
     const f7 = Math.round(rl.seven_day.used_percentage);
     const f7resetsAt = new Date(rl.seven_day.resets_at * 1000).toISOString();
     const f7elapsed = calcElapsed(f7resetsAt, 7 * 24);
     barParts.push(
-      `${osc(usageUrl, "📆")} ${dualBar(f7, f7elapsed, barWidth)}${dualInfo(f7, f7elapsed, rl.seven_day.resets_at)}`,
+      `${osc(usageUrl, "📆")}${dualBar(f7, f7elapsed, barWidth)}${dualInfo(f7, f7elapsed, rl.seven_day.resets_at)}`,
     );
   }
 
-  if (modelName) barParts.push(modelName);
-  const barsLine = barParts.join(" | ");
+  const ctxPct = Math.round(ctx?.used_percentage ?? 0);
+  barParts.push(`${osc(usageUrl, "🧠")}${contextBar(ctxPct, barWidth)}${modelName}`);
+
+  const barsLine = barParts.join(" ");
 
   // PR
   let prLine = "";
@@ -248,10 +250,13 @@ export function runStatusbar(): void {
     }
   } catch {}
 
+  const sessionId: string = input.session_id ?? "";
+  const sessionPart = sessionId ? `💬${sessionId}` : "";
+
   // Output
   const lines: string[] = [];
   if (barsLine) lines.push(barsLine);
-  const locationParts = [locationLine, vcsInfo].filter(Boolean);
+  const locationParts = [locationLine, vcsInfo, sessionPart].filter(Boolean);
   lines.push(locationParts.join(" "));
   if (prLine) lines.push(prLine);
   process.stdout.write(lines.join("\n"));
