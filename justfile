@@ -20,5 +20,9 @@ sample *ARGS:
 register:
     bun run src/cli.ts register
 
-push: default
+ensure-clean:
+    test "$(jj log -r @ --no-graph -T 'empty')" = "true"
+
+push: ensure-clean default
+    jj bookmark set main -r @-
     jj git push
