@@ -1,5 +1,6 @@
 // ANSI escape utilities for terminal styling (SGR) and OSC 8 hyperlinks.
 // Ref: ECMA-48 (CSI), XTerm ctlseqs (OSC), OSC 8 hyperlink spec.
+// Honors NO_COLOR (https://no-color.org): disables SGR but keeps OSC 8 links.
 
 const ESC = "\x1B";
 const BEL = "\x07";
@@ -8,8 +9,12 @@ const CSI = `${ESC}[`; // Control Sequence Introducer: ESC [
 const OSC = `${ESC}]`; // Operating System Command:    ESC ]
 const ST = BEL; // String Terminator (BEL variant; ESC\ is the canonical form but BEL has broader support)
 
+const NO_COLOR = (process.env.NO_COLOR ?? "") !== "";
+
 // SGR = Select Graphic Rendition: CSI <params> m
-const sgr = (params: string | number) => `${CSI}${params}m`;
+const sgr: (params: string | number) => string = NO_COLOR
+  ? () => ""
+  : (params) => `${CSI}${params}m`;
 
 // OSC 8 hyperlink: OSC 8 ; ; URI ST  text  OSC 8 ; ; ST
 const hyperlinkOpen = (url: string) => `${OSC}8;;${url}${ST}`;

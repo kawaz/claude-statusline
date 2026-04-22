@@ -34,9 +34,13 @@ export function calcElapsed(resetsAt: string, windowHours: number, now?: Date): 
   return Math.max(0, Math.min(100, elapsed));
 }
 
+const clamp = (x: number) => Math.min(100, Math.max(0, x));
+
 // Dual bar: top half = utilization, bottom half = elapsed time
 // Each cell: ▀ (top only), ▄ (bottom only), █ (both), space (neither)
 export function dualBar(util: number, elapsed: number, width: number): string {
+  util = clamp(util);
+  elapsed = clamp(elapsed);
   const fgFilled = ansi.fg(utilColor(util));
   const fgEmpty = ansi.fg(240);
   const bgFilled = ansi.bg(39);
@@ -54,6 +58,7 @@ export function dualBar(util: number, elapsed: number, width: number): string {
 }
 
 export function contextBar(pct: number, width: number): string {
+  pct = clamp(pct);
   const ctxColor = utilColor(pct);
   const ctxGray = pct >= 80 ? 52 : pct >= 50 ? 58 : 22;
   const fullCells = Math.floor(pct / 10);

@@ -103,6 +103,7 @@ export function runStatusbar(): void {
   }
   try {
     const repoBase = repo ? `https://${repo.host}/${repo.owner}/${repo.repo}` : "";
+    const colorFlag = (process.env.NO_COLOR ?? "") !== "" ? "--color=never" : "--color=always";
 
     // Single jj log call emits both colored and plain fields, separated by \x1f (US).
     // concat() preserves empty fields (separate() skips them, which misaligns splits).
@@ -111,7 +112,7 @@ export function runStatusbar(): void {
       "-r",
       "@",
       "--no-graph",
-      "--color=always",
+      colorFlag,
       "-T",
       [
         "concat(",

@@ -126,6 +126,11 @@ describe("dualBar", () => {
   test("width always matches", () => {
     expect(ansi.strip(dualBar(30, 20, 10))).toHaveLength(10);
   });
+
+  test("clamps out-of-range inputs", () => {
+    expect(ansi.strip(dualBar(-50, -50, 10))).toHaveLength(10);
+    expect(ansi.strip(dualBar(200, 200, 10))).toHaveLength(10);
+  });
 });
 
 describe("contextBar", () => {
@@ -160,5 +165,10 @@ describe("contextBar", () => {
     expect(plain).toHaveLength(10);
     const idx = plain.indexOf("45%");
     expect(idx).toBe(6);
+  });
+
+  test("clamps out-of-range inputs", () => {
+    expect(ansi.strip(contextBar(-10, 10))).toHaveLength(10);
+    expect(ansi.strip(contextBar(150, 10))).toHaveLength(10);
   });
 });
