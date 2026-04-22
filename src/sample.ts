@@ -1,4 +1,5 @@
-import { contextBar, dualBar } from "./bar";
+import { ansi } from "./ansi";
+import { contextBar, dualBar, formatDuration, utilColor } from "./bar";
 
 interface Spec {
   type: "ctx" | "5h" | "7d";
@@ -27,21 +28,11 @@ function pad(vals: number[], len: number): number[] {
 }
 
 function formatRemaining(elapsedPct: number, windowHours: number): string {
-  const remainMs = Math.max(0, (1 - elapsedPct / 100) * windowHours * 3600_000);
-  const totalM = Math.floor(remainMs / 60_000);
-  const m = totalM % 60;
-  const totalH = Math.floor(totalM / 60);
-  const h = totalH % 24;
-  const d = Math.floor(totalH / 24);
-  const pp = (n: number) => String(n).padStart(2, "0");
-  if (d > 0) return `${d}d${pp(h)}h`;
-  if (totalH >= 10) return `${pp(totalH)}h${pp(m)}m`;
-  if (totalH >= 1) return `${totalH}h${pp(m)}m`;
-  return `${pp(totalM)}m`;
+  return formatDuration((1 - elapsedPct / 100) * windowHours * 3600_000);
 }
 
 function visibleLength(s: string): number {
-  return s.replace(/\x1b\[[0-9;]*m/g, "").replace(/\x1b\]8;;[^\x07]*\x07/g, "").length;
+  return ansi.strip(s).length;
 }
 
 function renderCols(
@@ -61,11 +52,9 @@ function renderCols(
       const elapsedVals = spec.elapsed ? interpolate(spec.elapsed, totalRows) : pad([0], totalRows);
       const elapsed = elapsedVals[row];
       const emoji = spec.type === "5h" ? "⏰" : "📆";
-      const TU = util >= 80 ? "196" : util >= 50 ? "220" : "40";
-      const rst = "\x1b[0m";
       const remaining = formatRemaining(elapsed, WINDOW_HOURS[spec.type]);
       cols.push(
-        `${emoji} ${dualBar(util, elapsed, BAR_WIDTH)} \x1b[38;5;${TU}m${util}%${rst}/\x1b[38;5;39m${elapsed}%${rst}/\x1b[38;5;24m${remaining}${rst}`,
+        `${emoji} ${dualBar(util, elapsed, BAR_WIDTH)} ${ansi.fg(utilColor(util))}${util}%${ansi.reset}/${ansi.fg(39)}${elapsed}%${ansi.reset}/${ansi.fg(24)}${remaining}${ansi.reset}`,
       );
     }
   }
@@ -90,7 +79,7 @@ Examples:
   kawaz-claude-statusline sample 10 ctx 0-100
   kawaz-claude-statusline sample 4 ctx 0-100 5h 0-100/20-50 7d 50-80/20-30
 
-\x1b[2m# kawaz-claude-statusline sample ${defaultArgs.join(" ")}\x1b[0m`);
+${ansi.dim}# kawaz-claude-statusline sample ${defaultArgs.join(" ")}${ansi.reset}`);
   }
 
   const effectiveArgs = args.length === 0 || args.includes("--help") ? defaultArgs : args;

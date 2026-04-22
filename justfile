@@ -1,15 +1,15 @@
-default: lint build test
+default: test
 
 lint:
     bunx oxfmt --write src/
-    bunx oxlint --fix src/
+    bunx oxlint --fix --deny-warnings src/
 
-test:
-    bun test
-
-build:
+build: lint
     bun build src/cli.ts --outdir dist --target bun
     chmod +x dist/cli.js
+
+test: build
+    bun test
 
 run *ARGS:
     bun run src/cli.ts {{ARGS}}
@@ -20,9 +20,9 @@ sample *ARGS:
 register:
     bun run src/cli.ts register
 
-ensure-clean:
+ensure-clean: lint
     test "$(jj log -r @ --no-graph -T 'empty')" = "true"
 
-push: ensure-clean default
+push: ensure-clean test
     jj bookmark set main -r @-
     jj git push
