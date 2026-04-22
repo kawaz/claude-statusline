@@ -70,25 +70,29 @@ export function runStatusbar(): void {
   try {
     const repoBase = repo ? `https://${repo.host}/${repo.owner}/${repo.repo}` : "";
 
-    const coloredParts = jjExec([
+    // Single jj log call emits both colored and plain fields, separated by \x1f (US).
+    // concat() preserves empty fields (separate() skips them, which misaligns splits).
+    const combined = jjExec([
       "log",
       "-r",
       "@",
       "--no-graph",
       "--color=always",
       "-T",
-      'separate("\\t", if(current_working_copy, label("node working_copy", working_copies)), format_short_change_id(change_id), self.bookmarks(), format_short_commit_id(commit_id))',
-    ]).split("\t");
-    const [coloredNode, coloredCid, coloredBms, coloredCommit] = coloredParts;
-    const plainData = jjExec([
-      "log",
-      "-r",
-      "@",
-      "--no-graph",
-      "-T",
-      'separate("\\t", self.bookmarks().join(","), commit_id.short(8), if(immutable, "true", "false"))',
-    ]).split("\t");
-    const [plainBms, plainCommit, isImmutable] = plainData;
+      [
+        "concat(",
+        'if(current_working_copy, label("node working_copy", working_copies)), "\\x1f",',
+        'format_short_change_id(change_id), "\\x1f",',
+        'self.bookmarks(), "\\x1f",',
+        'format_short_commit_id(commit_id), "\\x1f",',
+        'self.bookmarks().join(","), "\\x1f",',
+        'commit_id.short(8), "\\x1f",',
+        'if(immutable, "true", "false")',
+        ")",
+      ].join(""),
+    ]).split("\x1f");
+    const [coloredNode, coloredCid, coloredBms, coloredCommit, plainBms, plainCommit, isImmutable] =
+      combined;
     currentBookmark = plainBms;
 
     const bmPart =
