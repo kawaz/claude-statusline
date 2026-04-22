@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { readFileSync, writeFileSync } from "fs";
+import { resolve } from "path";
 import { isatty } from "tty";
 import { runStatusbar } from "./statusbar";
 import { runSample } from "./sample";
@@ -46,7 +47,7 @@ Options:
     process.exit(1);
   }
 
-  const scriptPath = process.argv[1];
+  const scriptPath = resolve(process.argv[1] ?? "");
   const command = `bun ${scriptPath} run`;
   settings.statusLine = {
     type: "command",

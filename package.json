@@ -2,13 +2,6 @@
   "name": "@kawaz/claude-statusline",
   "version": "0.1.0",
   "type": "module",
-  "bin": {
-    "kawaz-claude-statusline": "dist/cli.js"
-  },
-  "files": [
-    "dist",
-    "src/install-handler.sh"
-  ],
   "devDependencies": {
     "oxfmt": "^0.38.0",
     "oxlint": "^1.53.0"

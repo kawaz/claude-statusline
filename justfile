@@ -4,11 +4,7 @@ lint:
     bunx oxfmt --write src/
     bunx oxlint --fix --deny-warnings src/
 
-build: lint
-    bun build src/cli.ts --outdir dist --target bun
-    chmod +x dist/cli.js
-
-test: build
+test: lint
     bun test
 
 run *ARGS:
