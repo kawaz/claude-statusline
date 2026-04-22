@@ -1,5 +1,7 @@
 import { execFileSync } from "child_process";
-import { readFileSync } from "fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "fs";
+import { homedir } from "os";
+import { dirname, join } from "path";
 import { ansi } from "./ansi";
 import { calcElapsed, contextBar, dualBar, formatDuration, utilColor } from "./bar";
 
@@ -11,6 +13,38 @@ function parseRepo(dir: string): { host: string; owner: string; repo: string } |
   const m = dir.match(/\/repos\/([^/]+)\/([^/]+)\/([^/]+)/);
   if (!m) return null;
   return { host: m[1], owner: m[2], repo: m[3] };
+}
+
+// PR cache: `gh pr view` dominates latency (~620ms); TTL-cache via file.
+// See docs/dr-gh-pr-cache.md.
+const PR_CACHE_TTL_MS = 60_000;
+
+function prCachePath(repo: { host: string; owner: string; repo: string }, branch: string): string {
+  const base = process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache");
+  const safe = (s: string) => s.replace(/[^a-zA-Z0-9._-]/g, "_");
+  return join(
+    base,
+    "claude-statusline",
+    "pr",
+    `${safe(repo.host)}-${safe(repo.owner)}-${safe(repo.repo)}-${safe(branch)}.json`,
+  );
+}
+
+function loadPrCache(path: string): unknown {
+  try {
+    const st = statSync(path);
+    if (Date.now() - st.mtimeMs > PR_CACHE_TTL_MS) return null;
+    return JSON.parse(readFileSync(path, "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
+function savePrCache(path: string, data: unknown): void {
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify(data));
+  } catch {}
 }
 
 export function runStatusbar(): void {
@@ -192,13 +226,27 @@ export function runStatusbar(): void {
         }).trim();
       } catch {}
     }
-    if (branch) {
-      const prJson = execFileSync(
-        "gh",
-        ["pr", "view", branch, "--json", "number,title,statusCheckRollup"],
-        { cwd, encoding: "utf-8", timeout: 5000, stdio: ["pipe", "pipe", "pipe"] },
-      );
-      const pr = JSON.parse(prJson);
+    if (branch && repo) {
+      const cachePath = prCachePath(repo, branch);
+      let pr = loadPrCache(cachePath) as {
+        number?: number;
+        title?: string;
+        statusCheckRollup?: unknown[];
+      } | null;
+      if (pr === null) {
+        try {
+          const prJson = execFileSync(
+            "gh",
+            ["pr", "view", branch, "--json", "number,title,statusCheckRollup"],
+            { cwd, encoding: "utf-8", timeout: 5000, stdio: ["pipe", "pipe", "pipe"] },
+          );
+          pr = JSON.parse(prJson);
+        } catch {
+          // Cache "no PR" result to avoid re-querying within TTL.
+          pr = { number: undefined };
+        }
+        savePrCache(cachePath, pr);
+      }
       if (pr?.number) {
         const red = ansi.sgr("31");
         const green = ansi.sgr("32");
