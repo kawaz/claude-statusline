@@ -19,3 +19,6 @@ sample *ARGS:
 
 register:
     bun run src/cli.ts register
+
+push: default
+    jj git push
