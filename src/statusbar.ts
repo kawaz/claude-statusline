@@ -104,7 +104,7 @@ export function runStatusbar(): void {
     cwd,
     encoding: "utf-8" as const,
     timeout: 3000,
-    stdio: ["pipe", "pipe", "pipe"] as const,
+    stdio: ["pipe", "pipe", "pipe"] as ["pipe", "pipe", "pipe"],
   };
   function jjExec(args: string[]): string {
     return execFileSync("jj", args, jjOpts).trim();
@@ -173,7 +173,7 @@ export function runStatusbar(): void {
         cwd,
         encoding: "utf-8" as const,
         timeout: 3000,
-        stdio: ["pipe", "pipe", "pipe"] as const,
+        stdio: ["pipe", "pipe", "pipe"] as ["pipe", "pipe", "pipe"],
       };
       const branch = execFileSync("git", ["branch", "--show-current"], gitOpts).trim();
       const shortHash = execFileSync("git", ["rev-parse", "--short", "HEAD"], gitOpts).trim();
@@ -184,9 +184,9 @@ export function runStatusbar(): void {
 
   // Bars
   const ctx = input.context_window;
-  const rawModel = (input.model?.id ?? "").replace(/^claude-/, "");
+  const rawModel: string = (input.model?.id ?? "").replace(/^claude-/, "");
   const modelName = rawModel
-    ? `${ansi.fg(40)}${rawModel.replace(/\[.*/, (s) => `${ansi.dim}${ansi.fg(40)}${s}`)}${ansi.reset}`
+    ? `${ansi.fg(40)}${rawModel.replace(/\[.*/, (s: string) => `${ansi.dim}${ansi.fg(40)}${s}`)}${ansi.reset}`
     : "";
 
   const usageUrl = "https://claude.ai/settings/usage";
@@ -261,8 +261,9 @@ export function runStatusbar(): void {
         const prUrl = repo
           ? `https://${repo.host}/${repo.owner}/${repo.repo}/pull/${pr.number}`
           : "";
+        const title = pr.title ?? "";
         const numPart = prUrl ? ansi.link(prUrl, `#${pr.number}`) : `#${pr.number}`;
-        const titlePart = prUrl ? ansi.link(prUrl, pr.title) : pr.title;
+        const titlePart = prUrl ? ansi.link(prUrl, title) : title;
         let checksStr = "";
         const checks: any[] = pr.statusCheckRollup ?? [];
         if (checks.length > 0) {

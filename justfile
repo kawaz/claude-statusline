@@ -4,7 +4,10 @@ lint:
     bunx oxfmt --write src/
     bunx oxlint --fix --deny-warnings src/
 
-test: lint
+typecheck: lint
+    bunx tsc --noEmit
+
+test: typecheck
     bun test
 
 run *ARGS:
