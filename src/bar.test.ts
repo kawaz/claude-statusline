@@ -26,9 +26,17 @@ describe("ansi.link", () => {
     expect(link).not.toContain("\x07b");
     expect(ansi.strip(link)).toBe("text");
   });
-  test("strips control chars from text", () => {
-    const link = ansi.link("https://a", "te\x1bxt");
+  test("strips bare control chars from text but preserves SGR", () => {
+    // BEL would close OSC 8 early; bare ESC could move the cursor
+    const link = ansi.link("https://a", "te\x07x\x1bt");
     expect(ansi.strip(link)).toBe("text");
+  });
+  test("preserves SGR coloring inside link text", () => {
+    const link = ansi.link("https://a", "\x1b[31mred\x1b[0m");
+    // SGR survives; visible text still recoverable
+    expect(link).toContain("\x1b[31m");
+    expect(link).toContain("\x1b[0m");
+    expect(ansi.strip(link)).toBe("red");
   });
 });
 

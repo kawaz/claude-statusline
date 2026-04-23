@@ -20,10 +20,9 @@ const sgr: (params: string | number) => string = NO_COLOR
 const hyperlinkOpen = (url: string) => `${OSC}8;;${url}${ST}`;
 const hyperlinkClose = `${OSC}8;;${ST}`;
 
-// Strip C0 (U+0000..U+001F, U+007F) and C1 (U+0080..U+009F) control chars
-// that could break OSC 8 framing or inject SGR. URLs and link text must not
-// contain raw control bytes; callers should use URL-encoding for literal bytes.
-const sanitize = (s: string) => {
+// Strip ALL C0 (U+0000..U+001F, U+007F) and C1 (U+0080..U+009F) control chars.
+// Used for URLs which must not contain raw control bytes.
+const sanitizeUrl = (s: string) => {
   let out = "";
   for (const ch of s) {
     const code = ch.charCodeAt(0);
@@ -38,6 +37,20 @@ const sgrRe = new RegExp(`${CSI}[0-9;]*m`, "g");
 // OSC 8 terminator can be BEL or ESC\; match either, non-greedy.
 const osc8Re = new RegExp(`${OSC}8;;.*?(?:${BEL}|${ESC}\\\\)`, "g");
 
+// Sanitize link text: preserve SGR sequences (color in hyperlink is fine),
+// strip other control chars that could close the OSC 8 early (BEL) or move
+// the cursor (other ESC sequences).
+const sanitizeLinkText = (s: string) => {
+  const sgrs = s.match(sgrRe) ?? [];
+  const parts = s.split(sgrRe);
+  let out = "";
+  for (let i = 0; i < parts.length; i++) {
+    out += sanitizeUrl(parts[i] ?? "");
+    if (i < sgrs.length) out += sgrs[i];
+  }
+  return out;
+};
+
 export const ansi = {
   reset: sgr(0),
   dim: sgr(2),
@@ -45,6 +58,6 @@ export const ansi = {
   bg: (n: number) => sgr(`48;5;${n}`),
   sgr,
   link: (url: string, text: string) =>
-    `${hyperlinkOpen(sanitize(url))}${sanitize(text)}${hyperlinkClose}`,
+    `${hyperlinkOpen(sanitizeUrl(url))}${sanitizeLinkText(text)}${hyperlinkClose}`,
   strip: (s: string) => s.replace(sgrRe, "").replace(osc8Re, ""),
 };
