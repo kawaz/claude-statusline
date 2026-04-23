@@ -55,7 +55,13 @@ export function runStatusbar(): void {
     console.error("  bun run /path/to/src/cli.ts register");
     process.exit(1);
   }
-  const input = JSON.parse(raw);
+  let input: any;
+  try {
+    input = JSON.parse(raw);
+  } catch (e) {
+    console.error(`Error: stdin is not valid JSON: ${(e as Error).message}`);
+    process.exit(1);
+  }
   const cwd: string = input.workspace?.current_dir ?? "";
 
   const repo = parseRepo(cwd);
@@ -163,16 +169,14 @@ export function runStatusbar(): void {
     currentBookmark = currentBookmark.split(",")[0];
   } catch {
     try {
-      const branch = execFileSync("git", ["branch", "--show-current"], {
+      const gitOpts = {
         cwd,
-        encoding: "utf-8",
+        encoding: "utf-8" as const,
         timeout: 3000,
-      }).trim();
-      const shortHash = execFileSync("git", ["rev-parse", "--short", "HEAD"], {
-        cwd,
-        encoding: "utf-8",
-        timeout: 3000,
-      }).trim();
+        stdio: ["pipe", "pipe", "pipe"] as const,
+      };
+      const branch = execFileSync("git", ["branch", "--show-current"], gitOpts).trim();
+      const shortHash = execFileSync("git", ["rev-parse", "--short", "HEAD"], gitOpts).trim();
       vcsInfo = [branch, shortHash].filter(Boolean).join(" ");
       currentBookmark = branch;
     } catch {}
@@ -226,6 +230,7 @@ export function runStatusbar(): void {
           cwd,
           encoding: "utf-8",
           timeout: 3000,
+          stdio: ["pipe", "pipe", "pipe"],
         }).trim();
       } catch {}
     }
