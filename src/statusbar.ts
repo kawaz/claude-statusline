@@ -51,6 +51,8 @@ export function runStatusbar(): void {
   const raw = readFileSync("/dev/stdin", "utf-8");
   if (!raw.trim()) {
     console.error("Error: No input on stdin. This command expects JSON from Claude Code.");
+    console.error("Tip: register as Claude Code statusLine first:");
+    console.error("  bun run /path/to/src/cli.ts register");
     process.exit(1);
   }
   const input = JSON.parse(raw);

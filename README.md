@@ -1,5 +1,8 @@
 # @kawaz/claude-statusline
 
+[![CI](https://github.com/kawaz/claude-statusline/actions/workflows/ci.yml/badge.svg)](https://github.com/kawaz/claude-statusline/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Claude Code の statusLine として情報密度の高いステータス表示を出す CLI（bun 前提）。
 
 - コンテキスト使用率 / 5h・7d のレート制限 / モデル名を ANSI バーで表示

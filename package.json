@@ -2,6 +2,7 @@
   "name": "@kawaz/claude-statusline",
   "version": "0.1.0",
   "type": "module",
+  "license": "MIT",
   "devDependencies": {
     "oxfmt": "^0.38.0",
     "oxlint": "^1.53.0"
