@@ -47,6 +47,77 @@ function savePrCache(path: string, data: unknown): void {
   } catch {}
 }
 
+type ClaudeAgent = {
+  pid: number;
+  sessionId: string;
+  status: string;
+  startedAt: number;
+};
+
+function ancestorPids(): Set<number> {
+  const set = new Set<number>();
+  let pid = process.ppid;
+  let depth = 0;
+  while (pid && pid !== 1 && depth < 16) {
+    set.add(pid);
+    try {
+      const out = execFileSync("ps", ["-o", "ppid=", "-p", String(pid)], {
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+      }).trim();
+      const next = Number(out);
+      if (!next || next === pid) break;
+      pid = next;
+    } catch {
+      break;
+    }
+    depth++;
+  }
+  return set;
+}
+
+type SessionEntry = ClaudeAgent & { self: boolean };
+
+function listSessionInstances(sessionId: string): {
+  entries: SessionEntry[];
+  hasOther: boolean;
+} {
+  if (!sessionId) return { entries: [], hasOther: false };
+  try {
+    const out = execFileSync("claude", ["agents", "--json"], {
+      encoding: "utf-8",
+      timeout: 3000,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const list = JSON.parse(out) as ClaudeAgent[];
+    const same = list.filter((a) => a.sessionId === sessionId);
+    const ancestors = ancestorPids();
+    const entries: SessionEntry[] = same.map((a) => ({ ...a, self: ancestors.has(a.pid) }));
+    entries.sort((a, b) => a.startedAt - b.startedAt);
+    return { entries, hasOther: entries.some((e) => !e.self) };
+  } catch {
+    return { entries: [], hasOther: false };
+  }
+}
+
+function formatStartedAt(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+function formatUptime(ms: number): string {
+  const sec = Math.max(0, Math.floor(ms / 1000));
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (d > 0) return `${d}d${h}h${m}m`;
+  if (h > 0) return `${h}h${m}m${s}s`;
+  if (m > 0) return `${m}m${s}s`;
+  return `${s}s`;
+}
+
 export function runStatusbar(): void {
   const raw = readFileSync("/dev/stdin", "utf-8");
   if (!raw.trim()) {
@@ -293,13 +364,43 @@ export function runStatusbar(): void {
   } catch {}
 
   const sessionId: string = input.session_id ?? "";
-  const sessionPart = sessionId ? `💬${sessionId}` : "";
+  let sessionPart = "";
+  const duplicateLines: string[] = [];
+  if (sessionId) {
+    const { entries, hasOther } = listSessionInstances(sessionId);
+    const sessionLabel = `💬${sessionId}`;
+    if (hasOther) {
+      const redBg = `${ansi.bg(196)}${ansi.fg(15)}`;
+      sessionPart = `${redBg}${sessionLabel}${ansi.reset}`;
+      const yellow = ansi.fg(220);
+      const green = ansi.fg(46);
+      const red = ansi.fg(196);
+      duplicateLines.push(
+        `${yellow}⚠ DUPLICATE SESSION: quit other(s) before typing.${ansi.reset}`,
+      );
+      const now = Date.now();
+      const upStr = entries.map((e) => formatUptime(now - e.startedAt));
+      const pidW = Math.max(...entries.map((e) => String(e.pid).length));
+      const upW = Math.max(...upStr.map((s) => s.length));
+      const statusW = Math.max(...entries.map((e) => e.status.length));
+      for (let i = 0; i < entries.length; i++) {
+        const e = entries[i]!;
+        const mark = e.self ? `${green}self${ansi.reset}` : `${red}other${ansi.reset}`;
+        duplicateLines.push(
+          `${formatStartedAt(e.startedAt)}  ${upStr[i]!.padStart(upW)}  ${String(e.pid).padStart(pidW)}  ${e.status.padEnd(statusW)}  ${mark}`,
+        );
+      }
+    } else {
+      sessionPart = sessionLabel;
+    }
+  }
 
   // Output
   const lines: string[] = [];
   if (barsLine) lines.push(barsLine);
   const locationParts = [locationLine, vcsInfo, sessionPart].filter(Boolean);
   lines.push(locationParts.join(" "));
+  for (const l of duplicateLines) lines.push(l);
   if (prLine) lines.push(prLine);
   process.stdout.write(lines.join("\n"));
 }
