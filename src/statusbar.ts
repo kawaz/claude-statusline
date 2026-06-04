@@ -16,7 +16,7 @@ function parseRepo(dir: string): { host: string; owner: string; repo: string } |
 }
 
 // PR cache: `gh pr view` dominates latency (~620ms); TTL-cache via file.
-// See docs/dr-gh-pr-cache.md.
+// See docs/decisions/DR-0001-gh-pr-cache.md.
 const PR_CACHE_TTL_MS = 60_000;
 
 function prCachePath(repo: { host: string; owner: string; repo: string }, branch: string): string {

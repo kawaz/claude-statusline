@@ -1,72 +1,85 @@
 # @kawaz/claude-statusline
 
+> English | [日本語](./README-ja.md)
+
 [![CI](https://github.com/kawaz/claude-statusline/actions/workflows/ci.yml/badge.svg)](https://github.com/kawaz/claude-statusline/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Claude Code の statusLine として情報密度の高いステータス表示を出す CLI（bun 前提）。
+A dense, information-rich `statusLine` for Claude Code (bun-based CLI).
 
-- コンテキスト使用率 / 5h・7d のレート制限 / モデル名を ANSI バーで表示
-- プロジェクトの VCS 状態（jj または git）を OSC 8 ハイパーリンク付きで表示
-- リポジトリルート・VSCode・Remote（claude.ai）へのワンクリックリンク
-- 現 PR 番号・タイトル・CI ステータス（`gh` CLI 経由、60s TTL でキャッシュ）
-- `NO_COLOR` 環境変数に対応（SGR 無効、OSC 8 リンクは保持）
+- Context usage / 5h / 7d rate limits / model name shown as ANSI bars
+- Project VCS state (jj or git) with OSC 8 hyperlinks
+- One-click links to the repo root, VSCode, and the Remote (claude.ai) session
+- Current PR number, title, and CI rollup via `gh` CLI (60s TTL file cache)
+- Warns with a red-background line when the same session ID is running in multiple Claude processes (prevents transcript jsonl overwrite accidents)
+- Honors `NO_COLOR` (SGR off, OSC 8 hyperlinks preserved)
 
-## スクリーンショット
+## Screenshot
 
 ```
 ⏰▀▀▀▀▀▀▀▀▀▀3%/19%/4h01m 📆▀▀▀▀▀▀▀▀▀▀66%/74%/1d20h 🧠▋    8%    opus-4-7[1m]
 📂[VSCode] kawaz/claude-statusline main@ ozwmpqsv 2202b65f 💬ebfc7063-...
 ```
 
-## 必要環境
+When the same session ID is duplicated across processes:
 
-- [bun](https://bun.sh) — TypeScript ランタイム（必須）
-- [Claude Code](https://docs.claude.com/en/docs/claude-code) — `~/.claude/settings.json` の `statusLine` 設定先
-- [`gh`](https://cli.github.com/) — PR 表示用（任意。無い時はその行が出ないだけ）
-- [`jj`](https://jj-vcs.dev/) または `git` — 現在 cwd の VCS 状態表示用（無い時はその情報が出ないだけ）
+```
+📂[VSCode] kawaz/claude-statusline main@ ozwmpqsv 2202b65f 💬ebfc7063-...
+⚠ DUPLICATE SESSION: quit other(s) before typing.
+2026-06-04T17:10:06  31m57s  78178  busy  self
+2026-06-04T17:18:14  23m49s   7418  idle  other
+```
 
-## セットアップ
+## Requirements
+
+- [bun](https://bun.sh) — TypeScript runtime (required)
+- [Claude Code](https://docs.claude.com/en/docs/claude-code) — writes to `~/.claude/settings.json`'s `statusLine`
+- [`gh`](https://cli.github.com/) — PR rendering (optional; the line is hidden if missing)
+- [`jj`](https://jj-vcs.dev/) or `git` — VCS info for the current cwd (optional; the line is hidden if both are missing)
+
+## Setup
 
 ```bash
 bun install
-bun run src/cli.ts register    # ~/.claude/settings.json に statusLine.command を設定
+bun run src/cli.ts register    # writes statusLine.command into ~/.claude/settings.json
 ```
 
-`register` はこのリポの `src/cli.ts` の絶対パスを使う `bun ... run` コマンドを書き込む。既存設定を尊重。上書きしたい場合は `--force`。
+`register` writes an absolute-path `bun ... run` command pointing at this repo's `src/cli.ts`. Existing settings are preserved; pass `--force` to overwrite.
 
-リポを移動した場合は再度 `bun run src/cli.ts register --force`。
+If you move the repo, re-run `bun run src/cli.ts register --force`.
 
-設定後、Claude Code を再起動するか、新しいセッションを開始すると statusLine が表示される。
+After registering, restart Claude Code or open a new session to see the statusLine.
 
-### アンインストール
+### Uninstall
 
 ```bash
-# ~/.claude/settings.json を編集して "statusLine" キーを削除
+# Edit ~/.claude/settings.json and remove the "statusLine" key
 ```
 
-または `jq 'del(.statusLine)' ~/.claude/settings.json | sponge ~/.claude/settings.json` 等。
+Or run `jq 'del(.statusLine)' ~/.claude/settings.json | sponge ~/.claude/settings.json`.
 
-## コマンド
+## Commands
 
-| コマンド | 用途 |
+| Command | Purpose |
 |---|---|
-| `run` | stdin から Claude Code の JSON を受けて statusbar を出力（statusLine 本体） |
-| `register` | `~/.claude/settings.json` に自分の `run` コマンドを登録 |
-| `sample` | バーのサンプル表示（見た目確認・配色チューニング用） |
+| `run` | Reads Claude Code's JSON on stdin and writes the statusbar (the statusLine body itself) |
+| `register` | Registers this CLI's `run` command into `~/.claude/settings.json` |
+| `sample` | Sample bar rendering (visual / palette tuning) |
 
-詳細は `bun run src/cli.ts <command> --help`。
+See `bun run src/cli.ts <command> --help` for details.
 
-## 開発
+## Development
 
 ```bash
-just           # lint + test
-just lint      # oxfmt + oxlint (--deny-warnings, 自動修正あり)
-just test      # bun test
-just sample    # サンプル出力
-just register  # 自分の src/cli.ts を登録
+just              # list recipes
+just ci           # lint + typecheck + test (single entry, mirrors CI)
+just lint         # oxfmt + oxlint (--deny-warnings, with auto-fix)
+just test [...]   # bun test
+just sample       # sample output
+just register     # register this repo's src/cli.ts
 ```
 
-dist/ は生成しない（src/cli.ts を直接 bun で実行する方針）。
+No `dist/` is produced — `src/cli.ts` is executed directly via bun.
 
 ### push
 
@@ -74,17 +87,31 @@ dist/ は生成しない（src/cli.ts を直接 bun で実行する方針）。
 just push
 ```
 
-- `ensure-clean` (@ が空 change であることを検証) → `test` (= lint → test) → `jj bookmark set main -r @-` → `jj git push`
-- lint で自動修正が走って @ が dirty になった場合は ensure-clean で失敗する（意図通り。新しいコミットに分離して再 push）
+- Gate chain: `ci` → `check-outdated-translations` (translation-pair commit-lag detection) → `check-version-bumped` (rejects `src/` changes without a version bump) → `bump-semver vcs push --branch main --jj-bookmark-auto-advance`
+- A push is rejected if any translation pair is stale or the version was not bumped
 
-## ファイル構成
+### version bump
 
-- `src/cli.ts` — コマンドディスパッチ、`register` の実装
-- `src/statusbar.ts` — `run` 本体（stdin JSON → stdout statusbar）
+```bash
+just bump-version           # patch
+just bump-version minor
+just bump-version major
+```
+
+`bump-semver --write` rewrites `$.version` in `package.json`, and `bump-semver vcs commit` produces the Release commit.
+
+## Layout
+
+- `src/cli.ts` — command dispatch, `register` implementation
+- `src/statusbar.ts` — `run` body (stdin JSON → stdout statusbar)
 - `src/bar.ts` — `contextBar` / `dualBar` / `colorize` / `utilColor` / `formatDuration`
-- `src/ansi.ts` — ANSI SGR / OSC 8 ユーティリティ（`ansi.fg(n)`, `ansi.link(url, text)`, `ansi.strip(s)` など）
-- `src/sample.ts` — `sample` コマンド実装
+- `src/ansi.ts` — ANSI SGR / OSC 8 helpers (`ansi.fg(n)`, `ansi.link(url, text)`, `ansi.strip(s)`, etc.)
+- `src/sample.ts` — `sample` command
+- `docs/decisions/` — Decision Records (DR), `INDEX.md` required
+- `docs/findings/` — One-off investigation results (e.g. benchmarks)
+- `docs/knowledge/` — Time-independent long-term notes (e.g. input JSON spec)
+- `docs/issue/` — Self-repo TODOs and incoming requests from other projects
 
-## ライセンス
+## License
 
 MIT License. Copyright (c) Yoshiaki Kawazu (@kawaz).

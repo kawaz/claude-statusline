@@ -1,10 +1,13 @@
-# Design Record: gh pr view キャッシュ
+# DR-0001: gh pr view キャッシュ
 
-## 背景
+- Status: Active
+- Date: 2026-04-23
+
+## Context
 
 statusline は Claude Code のプロンプトごとに再描画される。実測で `gh pr view` 呼び出しが約 620ms かかり、全体レイテンシ ~630ms のほぼ全てを占める。他の同期処理（jj log 22ms、grep ~5ms）に比べて支配的。
 
-## 決定
+## Decision
 
 ファイルベースの TTL キャッシュを導入する。
 
@@ -15,13 +18,13 @@ statusline は Claude Code のプロンプトごとに再描画される。実�
 - gh が失敗した場合は prLine を空に（既存挙動を維持）
 - PR が存在しない場合は `{"number": null}` をキャッシュに書き、TTL 内は「PR なし」として扱う（空 check の往復を防ぐ）
 
-## トレードオフ
-
-### 採用しなかった案
+## Alternatives Considered
 
 - **stale-while-revalidate（spawn でバックグラウンド更新）**: 実装複雑度が上がる割に、キャッシュ期限切れ時のみ発生するレア経路。初期版では不採用。必要なら後日追加。
 - **メモリキャッシュ**: statusline はプロセス起動ごとに走るのでメモリは保持できない。ファイルキャッシュ必須。
 - **SQLite や bdb**: 過剰。単一ブランチ単位の JSON ファイルで十分。
+
+## Consequences
 
 ### リスク
 

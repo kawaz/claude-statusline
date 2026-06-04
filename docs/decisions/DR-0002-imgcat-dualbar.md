@@ -1,8 +1,9 @@
-# DR: imgcat によるデュアルバー描画
+# DR-0002: imgcat によるデュアルバー描画
 
-## ステータス: 検討中（PoC 未実施）
+- Status: Active (PoC 未実施、検討中)
+- Date: 2026-04-23
 
-## 背景
+## Context
 
 ### 現行方式: quadrant 文字 + ANSI 2色
 
