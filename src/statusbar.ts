@@ -314,7 +314,41 @@ export function runStatusbar(): void {
   const ctxPct = Math.round(ctx?.used_percentage ?? 0);
   barParts.push(`${ansi.link(usageUrl, "🧠")}${contextBar(ctxPct, barWidth)}${modelName}`);
 
-  const barsLine = barParts.join(" ");
+  // Cost: per-turn delta (since last statusbar invocation) + session total + lines diff.
+  // Per-session state file caches the last total_cost_usd so we can compute the delta.
+  let costPart = "";
+  const cost = input.cost;
+  if (cost && typeof cost.total_cost_usd === "number") {
+    const sid: string = input.session_id ?? "";
+    const cur = cost.total_cost_usd;
+    const stateDir = `${homedir()}/.cache/claude-statusline/cost-state`;
+    const stateFile = sid ? `${stateDir}/${sid}.json` : "";
+    let prev = -1;
+    if (stateFile) {
+      try {
+        const st = JSON.parse(readFileSync(stateFile, "utf-8"));
+        if (typeof st.last_total_cost_usd === "number") prev = st.last_total_cost_usd;
+      } catch {}
+      try {
+        mkdirSync(stateDir, { recursive: true });
+        writeFileSync(stateFile, JSON.stringify({ last_total_cost_usd: cur }));
+      } catch {}
+    }
+    const turnDelta = prev < 0 ? 0 : Math.max(0, cur - prev);
+    const fmt2 = (n: number) => `$${n.toFixed(2)}`;
+    const fmt4 = (n: number) => `$${n.toFixed(4)}`;
+    const yellow = ansi.fg(220);
+    const cyan = ansi.fg(45);
+    const green = ansi.fg(40);
+    const red = ansi.fg(196);
+    const dim = ansi.sgr(2);
+    const added = cost.total_lines_added ?? 0;
+    const removed = cost.total_lines_removed ?? 0;
+    const diff = `${green}+${added}${ansi.reset}${dim}/${ansi.reset}${red}-${removed}${ansi.reset}`;
+    costPart = ` ${yellow}Δ${fmt4(turnDelta)}${ansi.reset} ${cyan}${fmt2(cur)}${ansi.reset} ${diff}`;
+  }
+
+  const barsLine = barParts.join(" ") + costPart;
 
   // PR
   let prLine = "";
