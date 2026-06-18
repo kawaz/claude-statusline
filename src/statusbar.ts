@@ -1,5 +1,14 @@
 import { execFileSync } from "child_process";
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "fs";
+import {
+  closeSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  statSync,
+  writeFileSync,
+} from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
 import { ansi } from "./ansi";
@@ -118,8 +127,101 @@ function formatUptime(ms: number): string {
   return `${s}s`;
 }
 
+function isRealUserTurn(entry: unknown): boolean {
+  if (!entry || typeof entry !== "object") return false;
+  const e = entry as Record<string, unknown>;
+  if (e.type !== "user") return false;
+  if (e.isMeta === true) return false;
+  if (e.isCompactSummary === true) return false;
+  const msg = e.message as { content?: unknown } | undefined;
+  if (!msg) return false;
+  let text: string;
+  if (typeof msg.content === "string") {
+    text = msg.content;
+  } else if (Array.isArray(msg.content)) {
+    text = msg.content
+      .filter((b: unknown) => (b as { type?: string })?.type === "text")
+      .map((b: unknown) => (b as { text?: string }).text ?? "")
+      .join("\n");
+  } else {
+    return false;
+  }
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  // 先頭が <...> or [...] な system 注入は除外。kawaz は通常そういう発言をしない。
+  if (/^[<[]/.test(trimmed)) return false;
+  return true;
+}
+
+function readLastUserTurnTs(transcriptPath: string): string {
+  if (!transcriptPath) return "";
+  try {
+    const fd = openSync(transcriptPath, "r");
+    try {
+      const st = fstatSync(fd);
+      const size = st.size;
+      const chunkSize = Math.min(256 * 1024, size);
+      const buf = Buffer.alloc(chunkSize);
+      readSync(fd, buf, 0, chunkSize, size - chunkSize);
+      const lines = buf.toString("utf-8").split("\n").filter(Boolean);
+      for (let i = lines.length - 1; i >= 0; i--) {
+        try {
+          const entry = JSON.parse(lines[i]!);
+          if (isRealUserTurn(entry)) return entry.timestamp ?? "";
+        } catch {}
+      }
+    } finally {
+      closeSync(fd);
+    }
+  } catch {}
+  return "";
+}
+
+type StatusbarConfig = {
+  debug: { enabled: boolean; dir: string };
+};
+
+function expandHome(p: string): string {
+  return p.startsWith("~/") ? `${homedir()}${p.slice(1)}` : p;
+}
+
+function loadStatusbarConfig(): StatusbarConfig {
+  const xdgCache = process.env.XDG_CACHE_HOME ?? `${homedir()}/.cache`;
+  const xdgConfig = process.env.XDG_CONFIG_HOME ?? `${homedir()}/.config`;
+  const def: StatusbarConfig = {
+    debug: { enabled: false, dir: `${xdgCache}/claude-statusline/debug` },
+  };
+  try {
+    const raw = readFileSync(`${xdgConfig}/claude-statusline/config.json`, "utf-8");
+    const loaded = JSON.parse(raw) as Partial<{ debug: Partial<StatusbarConfig["debug"]> }>;
+    return {
+      debug: {
+        enabled: loaded.debug?.enabled === true,
+        dir:
+          typeof loaded.debug?.dir === "string" && loaded.debug.dir
+            ? expandHome(loaded.debug.dir)
+            : def.debug.dir,
+      },
+    };
+  } catch {
+    return def;
+  }
+}
+
+const statusbarConfig = loadStatusbarConfig();
+
+function debugDump(suffix: string, content: string): void {
+  if (!statusbarConfig.debug.enabled) return;
+  try {
+    mkdirSync(statusbarConfig.debug.dir, { recursive: true });
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    writeFileSync(`${statusbarConfig.debug.dir}/${ts}-${process.pid}-${suffix}`, content);
+  } catch {}
+}
+
 export function runStatusbar(): void {
   const raw = readFileSync("/dev/stdin", "utf-8");
+  debugDump("input.json", raw);
   if (!raw.trim()) {
     console.error("Error: No input on stdin. This command expects JSON from Claude Code.");
     console.error("Tip: register as Claude Code statusLine first:");
@@ -314,8 +416,10 @@ export function runStatusbar(): void {
   const ctxPct = Math.round(ctx?.used_percentage ?? 0);
   barParts.push(`${ansi.link(usageUrl, "🧠")}${contextBar(ctxPct, barWidth)}${modelName}`);
 
-  // Cost: per-turn delta (since last statusbar invocation) + session total + lines diff.
-  // Per-session state file caches the last total_cost_usd so we can compute the delta.
+  // Cost: per-turn delta (since last real user submit) + session total + lines diff.
+  // Turn boundary = most recent user message in transcript whose text does NOT start with
+  // a tag-like prefix (< or [). System-injected entries (system-reminder, task-notification,
+  // Request interrupted, etc.) all start with one of those so a single regex filter is enough.
   let costPart = "";
   const cost = input.cost;
   if (cost && typeof cost.total_cost_usd === "number") {
@@ -323,18 +427,26 @@ export function runStatusbar(): void {
     const cur = cost.total_cost_usd;
     const stateDir = `${homedir()}/.cache/claude-statusline/cost-state`;
     const stateFile = sid ? `${stateDir}/${sid}.json` : "";
-    let prev = -1;
+    const lastUserTs = readLastUserTurnTs(input.transcript_path ?? "");
+    let turnStartCost = cur;
     if (stateFile) {
+      let st: { last_user_ts?: string; cost_at_turn_start?: number } | null = null;
       try {
-        const st = JSON.parse(readFileSync(stateFile, "utf-8"));
-        if (typeof st.last_total_cost_usd === "number") prev = st.last_total_cost_usd;
+        st = JSON.parse(readFileSync(stateFile, "utf-8"));
       } catch {}
-      try {
-        mkdirSync(stateDir, { recursive: true });
-        writeFileSync(stateFile, JSON.stringify({ last_total_cost_usd: cur }));
-      } catch {}
+      if (st && st.last_user_ts === lastUserTs && typeof st.cost_at_turn_start === "number") {
+        turnStartCost = st.cost_at_turn_start;
+      } else {
+        try {
+          mkdirSync(stateDir, { recursive: true });
+          writeFileSync(
+            stateFile,
+            JSON.stringify({ last_user_ts: lastUserTs, cost_at_turn_start: cur }),
+          );
+        } catch {}
+      }
     }
-    const turnDelta = prev < 0 ? 0 : Math.max(0, cur - prev);
+    const turnDelta = Math.max(0, cur - turnStartCost);
     const fmt2 = (n: number) => `$${n.toFixed(2)}`;
     const fmt4 = (n: number) => `$${n.toFixed(4)}`;
     const yellow = ansi.fg(220);
