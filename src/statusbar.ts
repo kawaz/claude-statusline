@@ -135,10 +135,26 @@ export function runStatusbar(): void {
   }
   const cwd: string = input.workspace?.current_dir ?? "";
 
-  const repo = parseRepo(cwd);
+  const inputRepo = input.workspace?.repo as
+    | { host?: string; owner?: string; name?: string }
+    | undefined;
+  const repo =
+    inputRepo?.host && inputRepo.owner && inputRepo.name
+      ? { host: inputRepo.host, owner: inputRepo.owner, repo: inputRepo.name }
+      : parseRepo(cwd);
   const encCwd = encPath(cwd);
   const finderLink = ansi.link(`file://${encCwd}`, "📂");
   const vscodeLink = `[${ansi.link(`vscode://file${encCwd}`, "VSCode")}]`;
+
+  // Worktree badge (Claude Code's EnterWorktree state).
+  // input.worktree is non-null iff the session is currently inside an EnterWorktree.
+  const wt = input.worktree as { name?: string; path?: string } | undefined;
+  let wtBadge = "";
+  if (wt?.name) {
+    const green = ansi.sgr(32);
+    const label = `${green}🌿${wt.name}${ansi.reset}`;
+    wtBadge = wt.path ? ansi.link(`file://${encPath(wt.path)}`, label) : label;
+  }
 
   // Remote control link (grep transcript for latest URL)
   let remoteLink = "";
@@ -157,15 +173,17 @@ export function runStatusbar(): void {
     }
   } catch {}
 
+  const wtPart = wtBadge ? ` ${wtBadge}` : "";
   let locationLine: string;
   if (repo) {
     const ownerUrl = `https://${repo.host}/${repo.owner}`;
     const repoUrl = `https://${repo.host}/${repo.owner}/${repo.repo}`;
     const dimBlue = ansi.sgr("2;34");
     const blue = ansi.sgr("34");
-    locationLine = `${finderLink}${vscodeLink}${remoteLink} ${dimBlue}${ansi.link(ownerUrl, repo.owner)}${ansi.reset}/${blue}${ansi.link(repoUrl, repo.repo)}${ansi.reset}`;
+    locationLine = `${finderLink}${vscodeLink}${remoteLink} ${dimBlue}${ansi.link(ownerUrl, repo.owner)}${ansi.reset}/${blue}${ansi.link(repoUrl, repo.repo)}${ansi.reset}${wtPart}`;
   } else {
-    locationLine = `${finderLink}${vscodeLink}${remoteLink} ` + ansi.link(`file://${encCwd}`, cwd);
+    locationLine =
+      `${finderLink}${vscodeLink}${remoteLink} ` + ansi.link(`file://${encCwd}`, cwd) + wtPart;
   }
 
   // VCS: try jj, fall back to git
@@ -248,7 +266,14 @@ export function runStatusbar(): void {
       };
       const branch = execFileSync("git", ["branch", "--show-current"], gitOpts).trim();
       const shortHash = execFileSync("git", ["rev-parse", "--short", "HEAD"], gitOpts).trim();
-      vcsInfo = [branch, shortHash].filter(Boolean).join(" ");
+      const repoBase = repo ? `https://${repo.host}/${repo.owner}/${repo.repo}` : "";
+      const greenBold = `${ansi.sgr(1)}${ansi.sgr(32)}`;
+      const branchColored = branch ? `${greenBold}${branch}${ansi.reset}` : "";
+      const branchPart =
+        branchColored && repoBase
+          ? ansi.link(`${repoBase}/tree/${encodeURIComponent(branch)}`, branchColored)
+          : branchColored;
+      vcsInfo = [branchPart, shortHash].filter(Boolean).join(" ");
       currentBookmark = branch;
     } catch {}
   }
