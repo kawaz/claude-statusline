@@ -177,45 +177,37 @@ function readLastUserTurnTs(transcriptPath: string): string {
   return "";
 }
 
-type StatusbarConfig = {
-  debug: { enabled: boolean; dir: string };
-};
-
-function expandHome(p: string): string {
-  return p.startsWith("~/") ? `${homedir()}${p.slice(1)}` : p;
-}
+type StatusbarConfig = { debug: { enabled: boolean } };
 
 function loadStatusbarConfig(): StatusbarConfig {
-  const xdgCache = process.env.XDG_CACHE_HOME ?? `${homedir()}/.cache`;
   const xdgConfig = process.env.XDG_CONFIG_HOME ?? `${homedir()}/.config`;
-  const def: StatusbarConfig = {
-    debug: { enabled: false, dir: `${xdgCache}/claude-statusline/debug` },
-  };
   try {
     const raw = readFileSync(`${xdgConfig}/claude-statusline/config.json`, "utf-8");
     const loaded = JSON.parse(raw) as Partial<{ debug: Partial<StatusbarConfig["debug"]> }>;
-    return {
-      debug: {
-        enabled: loaded.debug?.enabled === true,
-        dir:
-          typeof loaded.debug?.dir === "string" && loaded.debug.dir
-            ? expandHome(loaded.debug.dir)
-            : def.debug.dir,
-      },
-    };
+    return { debug: { enabled: loaded.debug?.enabled === true } };
   } catch {
-    return def;
+    return { debug: { enabled: false } };
   }
 }
 
+// Debug dump dir: $TMPDIR/claude-statusline-<uid>/ で per-user 分離。
+// macOS の TMPDIR (/var/folders/.../T/) は既に user 単位だが、Linux の /tmp
+// 等共有 dir でも衝突しないよう uid を付ける。
+function defaultDebugDir(): string {
+  const tmp = process.env.TMPDIR?.replace(/\/$/, "") ?? "/tmp";
+  const uid = process.getuid?.() ?? 0;
+  return `${tmp}/claude-statusline-${uid}`;
+}
+
 const statusbarConfig = loadStatusbarConfig();
+const DEBUG_DIR = defaultDebugDir();
 
 function debugDump(suffix: string, content: string): void {
   if (!statusbarConfig.debug.enabled) return;
   try {
-    mkdirSync(statusbarConfig.debug.dir, { recursive: true });
+    mkdirSync(DEBUG_DIR, { recursive: true });
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
-    writeFileSync(`${statusbarConfig.debug.dir}/${ts}-${process.pid}-${suffix}`, content);
+    writeFileSync(`${DEBUG_DIR}/${ts}-${process.pid}-${suffix}`, content);
   } catch {}
 }
 
