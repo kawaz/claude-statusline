@@ -342,7 +342,10 @@ export function runStatusbar(): void {
         currentBookmark = jjExec([
           "log",
           "-r",
-          "latest(ancestors(@-) & bookmarks())",
+          // heads() で topology 上「最も近い」bookmark を選ぶ (latest だけだと
+          // timestamp が新しい遠方 bookmark を拾いうる)。merge で複数 head が
+          // 残る余地があるため latest() を外側に付けて単一化のタイブレークに使う。
+          "latest(heads(ancestors(@-) & bookmarks()))",
           "--no-graph",
           "-T",
           'self.bookmarks().join(",")',
