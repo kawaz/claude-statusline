@@ -4,6 +4,7 @@ import {
   fstatSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   readSync,
   statSync,
@@ -16,6 +17,20 @@ import { calcElapsed, contextBar, dualBar, formatDuration, utilColor } from "./b
 
 function encPath(path: string): string {
   return path.split("/").map(encodeURIComponent).join("/");
+}
+
+// VSCode の URL handler は .code-workspace 拡張子の path を multi-root workspace
+// として開くので、プロジェクトルートにあればそちらを優先する。
+// 複数ある場合は辞書順先頭 (= 描画ごとにリンク先が揺れない決定性の担保)。
+export function findWorkspaceFile(dir: string): string | null {
+  try {
+    const found = readdirSync(dir)
+      .filter((name) => name.endsWith(".code-workspace"))
+      .sort();
+    return found.length > 0 ? join(dir, found[0]!) : null;
+  } catch {
+    return null;
+  }
 }
 
 function parseRepo(dir: string): { host: string; owner: string; repo: string } | null {
@@ -238,7 +253,10 @@ export function runStatusbar(): void {
       : parseRepo(cwd);
   const encCwd = encPath(cwd);
   const finderLink = ansi.link(`file://${encCwd}`, "📂");
-  const vscodeLink = `[${ansi.link(`vscode://file${encCwd}`, "VSCode")}]`;
+  // プロジェクトルート (project_dir) に *.code-workspace があれば workspace を開き、
+  // 無ければ cwd を folder として開く。
+  const wsFile = findWorkspaceFile(input.workspace?.project_dir ?? cwd);
+  const vscodeLink = `[${ansi.link(`vscode://file${encPath(wsFile ?? cwd)}`, "VSCode")}]`;
 
   // Worktree badge (Claude Code's EnterWorktree state).
   // input.worktree is non-null iff the session is currently inside an EnterWorktree.
