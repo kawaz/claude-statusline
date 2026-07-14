@@ -473,7 +473,12 @@ export function runStatusbar(): void {
     costPart = ` ${yellow}Δ${fmt4(turnDelta)}${ansi.reset} ${cyan}${fmt2(cur)}${ansi.reset} ${diff}`;
   }
 
-  const barsLine = barParts.join(" ") + costPart;
+  const mcUrl = /emeradaco/.test(process.env.CLAUDE_CONFIG_DIR ?? "")
+    ? "https://cpamc-emeradaco.kawaz-mbp16-20211217.kawaz.jp/management.html#/quota"
+    : "https://cpamc-personal.kawaz-mbp16-20211217.kawaz.jp/management.html#/quota";
+  const mcPart = ` [${ansi.link(mcUrl, "MC")}]`;
+
+  const barsLine = barParts.join(" ") + costPart + mcPart;
 
   // PR
   let prLine = "";
@@ -552,7 +557,8 @@ export function runStatusbar(): void {
   const duplicateLines: string[] = [];
   if (sessionId) {
     const { entries, hasOther } = listSessionInstances(sessionId);
-    const sessionLabel = `💬${sessionId}`;
+    const sessionUrl = `https://ccmsg.kawaz-mbp16-20211217.kawaz.jp/#t${sessionId}`;
+    const sessionLabel = `${ansi.link(sessionUrl, "💬")}${sessionId}`;
     if (hasOther) {
       const redBg = `${ansi.bg(196)}${ansi.fg(15)}`;
       sessionPart = `${redBg}${sessionLabel}${ansi.reset}`;
